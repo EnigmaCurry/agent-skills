@@ -2,6 +2,11 @@
 
 Custom slash command skills for [Claude Code](https://claude.ai/code) and [OpenCode](https://opencode.ai).
 
+Designed for use with the `claude` and `opencode` profiles from
+[nixos-vm-template](https://github.com/EnigmaCurry/nixos-vm-template),
+which pre-install all required dependencies and bootstrap these skills
+automatically.
+
 ## Quickstart for AI agents
 
 Paste the following prompt into a fresh agent session to bootstrap the

@@ -4,18 +4,13 @@ Custom Claude Code skills for global installation.
 
 ## Installation
 
-Add to `~/.claude/settings.json`:
+Symlink the `skills/` directory to `~/.claude/commands`:
 
-```json
-{
-  "skills": [
-    "/home/user/git/vendor/enigmacurry/agent-skills/skills"
-  ]
-}
+```bash
+ln -s /path/to/agent-skills/skills ~/.claude/commands
 ```
 
 ## Structure
 
 Skills live in the `skills/` directory as `.md` files. Each skill file
-is a prompt that Claude Code loads when the skill is invoked via
-`/skill-name`.
+is a prompt that Claude Code loads when invoked via `/skill-name`.

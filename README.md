@@ -12,7 +12,8 @@ Clone and install my agent-skills. Clone the repo to
 ~/git/vendor/enigmacurry/agent-skills, then symlink the skills/
 directory to the agent commands path (create parent dirs if needed).
 If the repo or symlink already exists, skip that step. Print the
-list of installed skills when done.
+list of installed skills when done. Remind me to restart the
+agent session so the new slash commands are loaded.
 
 The commands path depends on the agent:
 
@@ -23,9 +24,6 @@ The commands path depends on the agent:
 git clone https://github.com/EnigmaCurry/agent-skills ~/git/vendor/enigmacurry/agent-skills
 ln -sfn ~/git/vendor/enigmacurry/agent-skills/skills ~/.claude/commands
 ```
-
-After installation, restart the agent session so the new slash
-commands are loaded.
 
 ## Skills
 

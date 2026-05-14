@@ -27,7 +27,7 @@ If `nix-shell` is not available, verify these tools are on `$PATH` manually:
 | `node` | Required by frontend build (vite/svelte-kit) |
 | `pnpm` | Node package manager |
 | `just` | Command runner |
-| `envsubst` | Template variable substitution |
+| `envsubst` | Must be GNU gettext envsubst (not the Go a8m/envsubst) |
 | `cargo-binstall` | Prebuilt binary installer |
 | `pkg-config` | Needed if cargo builds native deps from source |
 | `openssl` | Needed if cargo builds native deps from source |

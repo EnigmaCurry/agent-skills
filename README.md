@@ -2,13 +2,32 @@
 
 Custom slash command skills for [Claude Code](https://claude.ai/code) and [OpenCode](https://opencode.ai).
 
-## Installation
+## Quickstart for AI agents
 
-Symlink the `skills/` directory to `~/.claude/commands`:
+Paste the following prompt into a fresh agent session to bootstrap the
+skills onto a new machine:
 
-```bash
-ln -s /path/to/agent-skills/skills ~/.claude/commands
-```
+> Clone and install my agent-skills. Clone the repo to
+> `~/git/vendor/enigmacurry/agent-skills`, then symlink the `skills/`
+> directory to the agent commands path (create parent dirs if needed).
+> If the repo or symlink already exists, skip that step. Print the
+> list of installed skills when done.
+>
+> The commands path depends on the agent:
+>
+> | Agent | Commands path |
+> |---|---|
+> | Claude Code | `~/.claude/commands` |
+> | OpenCode | `~/.opencode/commands` |
+> | Generic | Whatever commands dir the harness uses |
+>
+> ```
+> git clone https://github.com/EnigmaCurry/agent-skills ~/git/vendor/enigmacurry/agent-skills
+> ln -sfn ~/git/vendor/enigmacurry/agent-skills/skills ~/.claude/commands
+> ```
+
+After installation, restart the agent session so the new slash
+commands are loaded.
 
 ## Skills
 
@@ -23,12 +42,21 @@ walks you through rclone remote and bucket configuration.
 Clone the [rust-axum-template](https://github.com/EnigmaCurry/rust-axum-template)
 and instantiate it as a new project. Usage: `/rust-axum-template my-app`
 
+### /git-deploy
+
+Clone a git repository with deploy key authentication. Wraps the
+[git deploy](https://blog.rymcg.tech/blog/linux/git-extensions/#git-deploy)
+command. Defaults bare repo names to the `EnigmaCurry` GitHub org.
+Usage: `/git-deploy some-repo` or `/git-deploy https://github.com/user/repo`
+
 ## Structure
 
 Each skill is either a single `.md` file or a directory under `skills/`:
 
 ```
 skills/
+  git-deploy.md   # single-file skill
+  rust-axum-template.md
   share/
     share.md      # skill prompt
     export.py     # JSONL → HTML conversion
@@ -36,5 +64,4 @@ skills/
 ```
 
 Skill `.md` files are prompts loaded when invoked via `/skill-name`.
-Supporting scripts and utilities live alongside the prompt in the same
-directory.
+Supporting scripts live alongside the prompt in the same directory.

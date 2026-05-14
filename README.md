@@ -5,7 +5,7 @@ Custom slash command skills for [Claude Code](https://claude.ai/code) and [OpenC
 ## Quickstart for AI agents
 
 Paste the following prompt into a fresh agent session to bootstrap the
-skills onto a new machine:
+skills onto a new machine (customize as needed):
 
 ```
 Clone and install my agent-skills. Clone the repo to

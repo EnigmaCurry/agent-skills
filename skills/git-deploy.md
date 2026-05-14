@@ -15,9 +15,22 @@ Clone a git repository with deploy key authentication via `git deploy`.
 
 If `$ARGUMENTS` is empty or blank, use AskUserQuestion to ask the user for the repository.
 
+## Locate git-deploy
+
+Before running, find the `git-deploy` executable. Try in order:
+
+1. `command -v git-deploy` (user's PATH)
+2. `~/bin/git-deploy` (default install location)
+
+If neither exists, tell the user that `git-deploy` is not installed
+and link them to the blog post:
+https://blog.rymcg.tech/blog/linux/git-extensions/
+
+Store the resolved path as `GIT_DEPLOY`.
+
 ## Run git deploy
 
-Run `git deploy <REPO_ARG>` using Bash. Capture both stdout and stderr (`2>&1`).
+Run `$GIT_DEPLOY <REPO_ARG>` using Bash. Capture both stdout and stderr (`2>&1`).
 
 ## Handle the result
 
@@ -36,7 +49,7 @@ The output will contain a public key block (`ssh-ed25519 ...`) and instructions.
    - **Forgejo/Gitea** (any other host): `https://{host}/{org}/{repo}/settings/keys`
 3. Tell the user to add the deploy key to the repository. Provide the settings URL. For GitHub, remind them to **check "Allow write access"** if they need push capability.
 4. Ask the user (using AskUserQuestion) whether they have added the key.
-5. Once confirmed, re-run `git deploy <REPO_ARG>` and report the result.
+5. Once confirmed, re-run `$GIT_DEPLOY <REPO_ARG>` and report the result.
 
 ### Other failures
 

@@ -53,32 +53,32 @@ RCLONE_BUCKET=<bucket>
 S3_PUBLIC_URL=<public-url>
 ```
 
-### 2. Generate the HTML
+### 2. Ask for a title
 
-Resolve the script path and run the export:
+Get a suggested title from the first user message:
 ```bash
-SKILL_DIR="$(dirname "$(readlink -f ~/.claude/commands)")/share"
-python3 "${SKILL_DIR}/export.py" --cwd "$(pwd)" -o /tmp/claude-export.html
-```
-
-### 3. Generate filename and confirm
-
-Get a suggested filename from the first user message:
-```bash
+SKILL_DIR="$(readlink -f ~/.claude/commands)/share"
 python3 "${SKILL_DIR}/export.py" --cwd "$(pwd)" --first-message
 ```
 
-From that message, auto-generate a short (3-5 word) kebab-case filename ending in `.html`.
+From that message, suggest a short (3-5 word) title.
 
-Use AskUserQuestion to confirm the name or let the user provide an alternative.
+Use AskUserQuestion to show the suggested title and let the user confirm or provide an alternative. The user inputs a **title** (e.g. "Agent Skills Setup"), and you derive the kebab-case filename from it (e.g. `agent-skills-setup.html`).
+
+### 3. Generate the HTML
+
+Pass the title explicitly via `--title`:
+```bash
+python3 "${SKILL_DIR}/export.py" --cwd "$(pwd)" --title "${TITLE}" -o "/tmp/${FILENAME}"
+```
 
 ### 4. Upload and return URL
 
 Generate an 8-character random alphanumeric directory name and upload:
 ```bash
 RANDOM_DIR=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-z0-9' | head -c 8)
-URL=$(bash "${SKILL_DIR}/upload.sh" /tmp/claude-export.html "exports/${RANDOM_DIR}/${FILENAME}")
-rm -f /tmp/claude-export.html
+URL=$(bash "${SKILL_DIR}/upload.sh" "/tmp/${FILENAME}" "exports/${RANDOM_DIR}/${FILENAME}")
+rm -f "/tmp/${FILENAME}"
 ```
 
 Print the URL to the user.

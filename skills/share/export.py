@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a Claude Code JSONL session transcript to styled HTML."""
+"""Convert an AI agent JSONL session transcript to styled HTML."""
 
 import json
 import sys
@@ -193,7 +193,7 @@ def parse_jsonl(filepath):
     return messages
 
 
-def generate_html(messages, project_dir):
+def generate_html(messages, project_dir, title='Conversation'):
     """Generate styled HTML from messages."""
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
     today = datetime.now().strftime('%Y-%m-%d')
@@ -236,7 +236,7 @@ def generate_html(messages, project_dir):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Claude Code Conversation</title>
+<title>{html.escape(title)}</title>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{
@@ -347,11 +347,11 @@ footer {{
 <div class="accent-bar"></div>
 <div class="container">
 <header>
-  <h1>Claude Code Conversation</h1>
+  <h1>{html.escape(title)}</h1>
   <div class="subtitle">{today} &middot; {html.escape(project_dir)}</div>
 </header>
 {body}
-<footer>Exported from Claude Code &middot; {now}</footer>
+<footer>Exported &middot; {now}</footer>
 </div>
 </body>
 </html>'''
@@ -397,10 +397,12 @@ def first_user_message(filepath):
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description='Export Claude Code conversation to HTML')
+    parser = argparse.ArgumentParser(description='Export conversation to HTML')
     parser.add_argument('--jsonl', help='Path to JSONL file (auto-detected if omitted)')
     parser.add_argument('--output', '-o', default='/tmp/claude-export.html',
                         help='Output HTML path (default: /tmp/claude-export.html)')
+    parser.add_argument('--title', default=None,
+                        help='Page title (derived from output filename if omitted)')
     parser.add_argument('--cwd', help='Working directory for session detection')
     parser.add_argument('--first-message', action='store_true',
                         help='Print first user message and exit')
@@ -417,8 +419,13 @@ def main():
     if not project_dir.startswith('/'):
         project_dir = project_slug
 
+    title = args.title
+    if not title:
+        basename = os.path.splitext(os.path.basename(args.output))[0]
+        title = basename.replace('-', ' ').replace('_', ' ').title()
+
     messages = parse_jsonl(jsonl_path)
-    html_content = generate_html(messages, project_dir)
+    html_content = generate_html(messages, project_dir, title)
 
     with open(args.output, 'w') as f:
         f.write(html_content)

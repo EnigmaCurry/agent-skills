@@ -18,6 +18,11 @@ Export the current conversation as a styled HTML page, upload it to an
 S3-compatible bucket via rclone, and return a public URL. First run
 walks you through rclone remote and bucket configuration.
 
+### /rust-axum-template
+
+Clone the [rust-axum-template](https://github.com/EnigmaCurry/rust-axum-template)
+and instantiate it as a new project. Usage: `/rust-axum-template my-app`
+
 ## Structure
 
 Each skill is either a single `.md` file or a directory under `skills/`:

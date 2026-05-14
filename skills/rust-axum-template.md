@@ -8,11 +8,25 @@ Create a new Rust Axum project from the template.
 
 ## Steps
 
-### 1. Get the project name
+### 1. Check prerequisites
+
+Verify the following tools are available on `$PATH`:
+
+| Tool | Nix package |
+|------|-------------|
+| `cargo` | `nixpkgs#rustup` (then `rustup default stable`) |
+| `pnpm` | `nixpkgs#pnpm` |
+| `just` | `nixpkgs#just` |
+| `envsubst` | `nixpkgs#envsubst` |
+| `cargo-binstall` | `nixpkgs#cargo-binstall` |
+
+If any are missing, list the missing tools and ask the user whether to install them via `nix profile install`. Do not proceed until all are available.
+
+### 2. Get the project name
 
 If `$ARGUMENTS` is empty or blank, use AskUserQuestion to ask the user for the new project name.
 
-### 2. Clone the template
+### 3. Clone the template
 
 Clone into the current working directory:
 
@@ -22,7 +36,7 @@ git clone https://github.com/EnigmaCurry/rust-axum-template "$PROJECT_NAME"
 
 If the directory already exists, stop and tell the user.
 
-### 3. Instantiate the project
+### 4. Instantiate the project
 
 Change into the new project directory and look for setup instructions:
 

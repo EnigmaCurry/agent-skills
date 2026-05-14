@@ -8,10 +8,18 @@ Clone a git repository with deploy key authentication via `git deploy`.
 
 ## Argument parsing
 
-`$ARGUMENTS` is the repo reference. It can be any format that `git deploy` accepts (full URLs, `org/repo`, etc.), plus one convenience shorthand:
+`$ARGUMENTS` is the repo reference. `git deploy` only accepts full
+URLs or local paths — it does **not** accept `org/repo` shorthand.
+Always expand to a full URL before passing to the script.
 
-- If `$ARGUMENTS` is a **bare name with no `/` and no protocol prefix**, prepend `EnigmaCurry/` to make it `https://github.com/EnigmaCurry/$ARGUMENTS`.
-- Otherwise, pass `$ARGUMENTS` through to `git deploy` unchanged — it already handles all URL formats and normalization.
+- **Bare name** (no `/`, no protocol): expand to
+  `https://github.com/EnigmaCurry/<name>`
+  Example: `emacs` → `https://github.com/EnigmaCurry/emacs`
+- **org/repo** (contains `/` but no protocol): expand to
+  `https://github.com/<org>/<repo>`
+  Example: `EnigmaCurry/emacs` → `https://github.com/EnigmaCurry/emacs`
+- **Full URL** (starts with `https://`, `git@`, or `ssh://`): pass
+  through unchanged.
 
 If `$ARGUMENTS` is empty or blank, use AskUserQuestion to ask the user for the repository.
 
@@ -45,7 +53,10 @@ Then read `/tmp/git-deploy-out` (public key) and `/tmp/git-deploy-err`
 
 ### Success (exit code 0)
 
-The repo was cloned or already configured. Report the clone location to the user.
+The repo was cloned or already configured. The clone destination is
+`~/git/vendor/{org}/{repo}` where **org is lowercased** by the script
+(e.g. `EnigmaCurry` → `enigmacurry`). Read the destination path from
+the stderr output (look for "Location:") rather than guessing it.
 
 ### Failure (exit code 1) — deploy key not yet authorized
 

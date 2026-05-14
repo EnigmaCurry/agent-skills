@@ -414,10 +414,7 @@ def main():
         print(first_user_message(jsonl_path))
         return
 
-    project_slug = os.path.basename(os.path.dirname(jsonl_path))
-    project_dir = project_slug.replace('-', '/', 1) if project_slug.startswith('-') else project_slug
-    if not project_dir.startswith('/'):
-        project_dir = project_slug
+    project_dir = args.cwd or os.getcwd()
 
     title = args.title
     if not title:

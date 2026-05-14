@@ -15,36 +15,32 @@ Example: `/rust-axum-template my-app git_username=acme`
 
 ## Steps
 
-### 1. Check prerequisites
+### 1. Check prerequisites and enter nix-shell
 
-Verify the following tools are available on `$PATH`:
+First, check if `nix-shell` is available on `$PATH`. If it is, **all commands in subsequent steps must be run inside nix-shell**. Use `nix-shell --run "<command>"` for every bash invocation (after the repo is cloned and `shell.nix` is available), or prefix multi-step work with a single `nix-shell` entry. The `shell.nix` in the template provides all required tools and sets up `OPENSSL_DIR`/`OPENSSL_LIB_DIR` automatically. Do NOT attempt to install individual packages via `nix profile install` — use `nix-shell` instead.
 
-| Tool | Nix package | Notes |
-|------|-------------|-------|
-| `cargo` | `nixpkgs#rustup` | Rust toolchain manager |
-| `node` | `nixpkgs#nodejs` | Required by frontend build (vite/svelte-kit) |
-| `pnpm` | `nixpkgs#pnpm` | Node package manager |
-| `just` | `nixpkgs#just` | Command runner |
-| `envsubst` | `nixpkgs#envsubst` | Template variable substitution |
-| `cargo-binstall` | `nixpkgs#cargo-binstall` | Prebuilt binary installer |
-| `pkg-config` | `nixpkgs#pkg-config` | Needed if cargo builds native deps from source |
-| `openssl` | `nixpkgs#openssl.dev` | Needed if cargo builds native deps from source |
+If `nix-shell` is not available, verify these tools are on `$PATH` manually:
 
-If any are missing, list the missing tools and offer two installation methods:
-- **Preferred (Nix shell):** If the cloned repo contains a `shell.nix`, suggest `nix-shell` or `direnv allow` to enter a reproducible dev environment.
-- **Fallback (Nix profile):** `nix profile install <package>`. Note: this may conflict with home-manager managed profiles — if so, prefer `nix-shell -p <packages>` instead.
+| Tool | Notes |
+|------|-------|
+| `cargo` | Install via `rustup`; then run `rustup default stable` |
+| `node` | Required by frontend build (vite/svelte-kit) |
+| `pnpm` | Node package manager |
+| `just` | Command runner |
+| `envsubst` | Template variable substitution |
+| `cargo-binstall` | Prebuilt binary installer |
+| `pkg-config` | Needed if cargo builds native deps from source |
+| `openssl` | Needed if cargo builds native deps from source |
 
 Do not proceed until all required tools are available.
 
 ### 2. Set up Rust toolchain
 
-Ensure a default Rust toolchain is configured:
+If not using `nix-shell` (which handles this automatically), ensure a default Rust toolchain is configured:
 
 ```bash
 rustup default stable
 ```
-
-This is required before any `cargo` command will work. Do not skip this step.
 
 ### 3. Get the project name
 

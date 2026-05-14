@@ -7,24 +7,22 @@ Custom slash command skills for [Claude Code](https://claude.ai/code) and [OpenC
 Paste the following prompt into a fresh agent session to bootstrap the
 skills onto a new machine:
 
-> Clone and install my agent-skills. Clone the repo to
-> `~/git/vendor/enigmacurry/agent-skills`, then symlink the `skills/`
-> directory to the agent commands path (create parent dirs if needed).
-> If the repo or symlink already exists, skip that step. Print the
-> list of installed skills when done.
->
-> The commands path depends on the agent:
->
-> | Agent | Commands path |
-> |---|---|
-> | Claude Code | `~/.claude/commands` |
-> | OpenCode | `~/.opencode/commands` |
-> | Generic | Whatever commands dir the harness uses |
->
-> ```
-> git clone https://github.com/EnigmaCurry/agent-skills ~/git/vendor/enigmacurry/agent-skills
-> ln -sfn ~/git/vendor/enigmacurry/agent-skills/skills ~/.claude/commands
-> ```
+```
+Clone and install my agent-skills. Clone the repo to
+~/git/vendor/enigmacurry/agent-skills, then symlink the skills/
+directory to the agent commands path (create parent dirs if needed).
+If the repo or symlink already exists, skip that step. Print the
+list of installed skills when done.
+
+The commands path depends on the agent:
+
+  Claude Code: ~/.claude/commands
+  OpenCode:    ~/.opencode/commands
+  Generic:     Whatever commands dir the harness uses
+
+git clone https://github.com/EnigmaCurry/agent-skills ~/git/vendor/enigmacurry/agent-skills
+ln -sfn ~/git/vendor/enigmacurry/agent-skills/skills ~/.claude/commands
+```
 
 After installation, restart the agent session so the new slash
 commands are loaded.

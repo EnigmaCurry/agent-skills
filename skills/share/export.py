@@ -860,6 +860,61 @@ header .subtitle {{ font-size: 0.9rem; color: var(--fg-muted); margin-top: 0.25r
   transition: transform 0.2s;
 }}
 .toggle-switch.active::after {{ transform: translateX(1.1rem); }}
+.setting-control select {{
+  font-family: inherit;
+  font-size: 0.8rem;
+  color: var(--fg);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.2rem 0.3rem;
+  max-width: 12rem;
+}}
+.setting-control input[type=range] {{
+  width: 7rem;
+  accent-color: #2563eb;
+}}
+.setting-row.setting-sub {{ padding-left: 0.9rem; }}
+.setting-row.setting-sub .setting-label {{ font-weight: 500; color: var(--fg-muted); }}
+.header-btns {{ display: flex; align-items: flex-start; gap: 0.1rem; }}
+.tts-bar {{
+  display: none;
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 4px 16px var(--msg-shadow);
+  padding: 0.35rem 0.7rem;
+}}
+body.tts-active .tts-bar {{ display: flex; }}
+.tts-bar button {{
+  background: none;
+  border: none;
+  color: var(--fg);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: opacity 0.2s;
+  padding: 0.2rem 0.3rem;
+}}
+.tts-bar button:hover {{ opacity: 1; }}
+.tts-progress {{
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 5rem;
+  text-align: center;
+}}
+.message.speaking {{
+  box-shadow: 0 0 0 2px var(--assistant-accent), 0 1px 3px var(--msg-shadow);
+}}
 .message {{
   background: var(--msg-bg);
   border-radius: 8px;
@@ -1220,7 +1275,10 @@ footer {{
     <h1>{html.escape(title)}</h1>
     <div class="subtitle">{today} &middot; {html.escape(project_dir)}</div>
   </div>
-  <button class="settings-btn" onclick="document.getElementById('settingsModal').classList.add('open')" title="Settings">&#9881;&#65039;</button>
+  <div class="header-btns">
+    <button class="settings-btn" id="ttsHeaderBtn" onclick="toggleTTS()" title="Read aloud (p)">&#128266;</button>
+    <button class="settings-btn" onclick="document.getElementById('settingsModal').classList.add('open')" title="Settings">&#9881;&#65039;</button>
+  </div>
 </header>
 <div class="modal-overlay" id="settingsModal" onclick="if(event.target===this)this.classList.remove('open')">
   <div class="modal">
@@ -1253,11 +1311,33 @@ footer {{
           <span>On</span>
         </div>
       </div>
+      <div class="setting-row" id="ttsRow">
+        <span class="setting-label">Read aloud</span>
+        <div class="setting-control">
+          <span>Off</span>
+          <div class="toggle-switch" id="ttsToggle" onclick="toggleTTS()"></div>
+          <span>On</span>
+        </div>
+      </div>
+      <div class="setting-row setting-sub" id="ttsVoiceRow">
+        <span class="setting-label">Voice</span>
+        <div class="setting-control">
+          <select id="ttsVoice" onchange="ttsSetVoice(this.value)"><option value="">Browser default</option></select>
+        </div>
+      </div>
+      <div class="setting-row setting-sub" id="ttsRateRow">
+        <span class="setting-label">Speed</span>
+        <div class="setting-control">
+          <input type="range" id="ttsRate" min="0.5" max="2" step="0.1" value="1" oninput="ttsSetRate(this.value)">
+          <span id="ttsRateLabel">1.0&times;</span>
+        </div>
+      </div>
       <div class="keybinds">
         <h3>Keyboard Shortcuts</h3>
         <div class="keybind"><kbd>j</kbd> Next message</div>
         <div class="keybind"><kbd>k</kbd> Previous message</div>
         <div class="keybind"><kbd>m</kbd> Toggle minimap</div>
+        <div class="keybind"><kbd>p</kbd> Play / pause read-aloud</div>
         <div class="keybind"><kbd>Esc</kbd> Close settings</div>
       </div>
     </div>
@@ -1272,6 +1352,13 @@ footer {{
   </div>
   <div class="minimap-viewport" id="minimapViewport"></div>
   <button class="minimap-jump minimap-jump-bottom" onclick="window.scrollTo({{top:document.documentElement.scrollHeight,behavior:'smooth'}})" title="Scroll to bottom">&#9660;</button>
+</div>
+<div class="tts-bar" id="ttsBar">
+  <button onclick="ttsStep(-1)" title="Previous sentence">&#9198;</button>
+  <button onclick="ttsPlayPause()" id="ttsPlayBtn" title="Play / pause (p)">&#9208;&#65039;</button>
+  <button onclick="ttsStep(1)" title="Next sentence">&#9197;</button>
+  <span class="tts-progress" id="ttsProgress">0 / 0</span>
+  <button onclick="ttsStop()" title="Stop reading">&times;</button>
 </div>
 <script>
 function copyCode(btn) {{
@@ -1365,12 +1452,180 @@ function findCurrentMsg() {{
   currentIdx = 0;
 }}
 document.addEventListener('keydown', function(e) {{
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
   if (e.key === 'Escape') {{ document.getElementById('settingsModal').classList.remove('open'); }}
   if (e.key === 'j') {{ if (currentIdx < 0) findCurrentMsg(); navigateMsg(1); e.preventDefault(); }}
   if (e.key === 'k') {{ if (currentIdx < 0) findCurrentMsg(); navigateMsg(-1); e.preventDefault(); }}
   if (e.key === 'm') {{ toggleMinimap(); }}
+  if (e.key === 'p') {{ ttsPlayPause(); e.preventDefault(); }}
 }});
+// Read-aloud (Web Speech API)
+var ttsSupported = 'speechSynthesis' in window;
+var ttsChunks = [], ttsIdx = 0, ttsGen = 0, ttsLastMsg = -1;
+var ttsState = 'idle', ttsVoiceName = null, ttsRate = 1;
+function ttsSplit(text) {{
+  var out = [];
+  (text.match(/[^.!?]+[.!?]*/g) || []).forEach(function(s) {{
+    s = s.trim();
+    if (!s) return;
+    // Chrome cuts off utterances longer than ~15s, so keep each piece short
+    while (s.length > 220) {{
+      var cut = s.lastIndexOf(' ', 220);
+      if (cut < 60) cut = 220;
+      out.push(s.slice(0, cut));
+      s = s.slice(cut).trim();
+    }}
+    if (s) out.push(s);
+  }});
+  return out;
+}}
+function ttsCollect() {{
+  ttsChunks = [];
+  allMessages.forEach(function(msg, i) {{
+    if (msg.classList.contains('note-message')) return;
+    var clone = msg.cloneNode(true);
+    // Reading bash commands and diffs aloud is useless — prose only
+    clone.querySelectorAll('pre, .tool-use, .copy-btn, .message-label').forEach(function(n) {{ n.remove(); }});
+    var text = clone.innerText.replace(/\\s+/g, ' ').trim();
+    if (!text) return;
+    ttsChunks.push({{ text: msg.classList.contains('user-message') ? 'User said:' : 'Claude replied:', msg: i }});
+    ttsSplit(text).forEach(function(s) {{ ttsChunks.push({{ text: s, msg: i }}); }});
+  }});
+}}
+function ttsHighlight(i) {{
+  if (i === ttsLastMsg) return;
+  ttsLastMsg = i;
+  allMessages.forEach(function(m) {{ m.classList.remove('speaking'); }});
+  var msg = allMessages[i];
+  if (!msg) return;
+  msg.classList.add('speaking');
+  currentIdx = i;
+  msg.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+}}
+function ttsUpdate() {{
+  var p = document.getElementById('ttsProgress');
+  if (p) p.textContent = Math.min(ttsIdx + 1, ttsChunks.length) + ' / ' + ttsChunks.length;
+  var b = document.getElementById('ttsPlayBtn');
+  if (b) b.innerHTML = ttsState === 'playing' ? '&#9208;&#65039;' : '&#9654;&#65039;';
+}}
+function ttsSpeak() {{
+  if (ttsState !== 'playing') return;
+  if (ttsIdx >= ttsChunks.length) {{ ttsStop(); return; }}
+  var chunk = ttsChunks[ttsIdx];
+  var gen = ttsGen;
+  var u = new SpeechSynthesisUtterance(chunk.text);
+  u.rate = ttsRate;
+  if (ttsVoiceName) {{
+    var voices = speechSynthesis.getVoices();
+    for (var i = 0; i < voices.length; i++) {{
+      if (voices[i].name === ttsVoiceName) {{ u.voice = voices[i]; u.lang = voices[i].lang; break; }}
+    }}
+  }}
+  u.onstart = function() {{ ttsHighlight(chunk.msg); }};
+  u.onend = function() {{ if (gen === ttsGen) {{ ttsIdx++; ttsSpeak(); ttsUpdate(); }} }};
+  u.onerror = function(e) {{
+    if (gen !== ttsGen || e.error === 'interrupted' || e.error === 'canceled') return;
+    ttsIdx++; ttsSpeak(); ttsUpdate();
+  }};
+  speechSynthesis.speak(u);
+  ttsUpdate();
+}}
+function ttsStart() {{
+  if (!ttsSupported) return;
+  if (!ttsChunks.length) ttsCollect();
+  if (!ttsChunks.length) return;
+  document.body.classList.add('tts-active');
+  document.getElementById('ttsToggle').classList.add('active');
+  speechSynthesis.cancel();
+  ttsState = 'playing';
+  setTimeout(ttsSpeak, 50);
+  ttsUpdate();
+}}
+function ttsStop() {{
+  ttsGen++;
+  ttsState = 'idle';
+  if (ttsSupported) speechSynthesis.cancel();
+  ttsIdx = 0;
+  ttsLastMsg = -1;
+  document.body.classList.remove('tts-active');
+  document.getElementById('ttsToggle').classList.remove('active');
+  allMessages.forEach(function(m) {{ m.classList.remove('speaking'); }});
+  ttsUpdate();
+}}
+function ttsPlayPause() {{
+  if (!ttsSupported) return;
+  if (ttsState === 'playing') {{
+    ttsState = 'paused';
+    speechSynthesis.pause();
+    ttsUpdate();
+  }} else if (ttsState === 'paused') {{
+    ttsState = 'playing';
+    speechSynthesis.resume();
+    ttsUpdate();
+  }} else {{
+    ttsStart();
+  }}
+}}
+function toggleTTS() {{
+  if (ttsState === 'idle') ttsStart(); else ttsStop();
+}}
+function ttsStep(dir) {{
+  if (ttsState === 'idle') return;
+  ttsGen++;
+  speechSynthesis.cancel();
+  ttsIdx = Math.max(0, Math.min(ttsChunks.length - 1, ttsIdx + dir));
+  ttsLastMsg = -1;
+  ttsState = 'playing';
+  setTimeout(ttsSpeak, 50);
+  ttsUpdate();
+}}
+function ttsSetVoice(name) {{
+  ttsVoiceName = name || null;
+  try {{ localStorage.setItem('ttsVoice', name); }} catch (e) {{}}
+  if (ttsState !== 'idle') ttsStep(0);
+}}
+function ttsSetRate(v) {{
+  ttsRate = parseFloat(v) || 1;
+  document.getElementById('ttsRateLabel').innerHTML = ttsRate.toFixed(1) + '&times;';
+  try {{ localStorage.setItem('ttsRate', String(ttsRate)); }} catch (e) {{}}
+}}
+(function() {{
+  if (!ttsSupported) {{
+    ['ttsRow', 'ttsVoiceRow', 'ttsRateRow', 'ttsHeaderBtn'].forEach(function(id) {{
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    }});
+    return;
+  }}
+  try {{
+    ttsVoiceName = localStorage.getItem('ttsVoice') || null;
+    var saved = parseFloat(localStorage.getItem('ttsRate'));
+    if (saved) ttsRate = saved;
+  }} catch (e) {{}}
+  document.getElementById('ttsRate').value = ttsRate;
+  document.getElementById('ttsRateLabel').innerHTML = ttsRate.toFixed(1) + '&times;';
+  var sel = document.getElementById('ttsVoice');
+  function fillVoices() {{
+    var voices = speechSynthesis.getVoices();
+    if (!voices.length || sel.getAttribute('data-filled') === String(voices.length)) return;
+    sel.setAttribute('data-filled', String(voices.length));
+    sel.innerHTML = '';
+    var def = document.createElement('option');
+    def.value = '';
+    def.textContent = 'Browser default';
+    sel.appendChild(def);
+    voices.forEach(function(v) {{
+      var o = document.createElement('option');
+      o.value = v.name;
+      o.textContent = v.name + ' (' + v.lang + ')';
+      if (v.name === ttsVoiceName) o.selected = true;
+      sel.appendChild(o);
+    }});
+  }}
+  fillVoices();
+  speechSynthesis.addEventListener('voiceschanged', fillVoices);
+  window.addEventListener('beforeunload', function() {{ speechSynthesis.cancel(); }});
+}})();
 // Load anchor on page load
 (function() {{
   var hash = window.location.hash;

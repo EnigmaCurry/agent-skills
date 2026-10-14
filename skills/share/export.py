@@ -275,7 +275,28 @@ def parse_jsonl(filepath, stats=None):
         if entry_idx in censored:
             continue
         msg_type = entry.get('type')
+        if msg_type == 'attachment':
+            # A message typed while the turn was running is delivered as a
+            # queued command, never as a user entry -- without this it is
+            # missing from the page entirely. Every other attachment type is
+            # a harness reminder nobody typed.
+            att = entry.get('attachment') or {}
+            if (att.get('type') == 'queued_command'
+                    and (att.get('origin') or {}).get('kind') == 'human'):
+                text = strip_system_tags(att.get('prompt', ''))
+                if text:
+                    messages.append({'role': 'user', 'text': text,
+                                     'timestamp': att.get('timestamp') or entry.get('timestamp')})
+            continue
         if msg_type == 'user':
+            # Skill bodies and tool-triggered notices are recorded with role
+            # "user" even though the user never wrote them; isMeta is the
+            # harness's own flag for injected text, so it is what to trust.
+            if entry.get('isMeta'):
+                if stats is not None:
+                    stats['injected'] = stats.get('injected', 0) + 1
+                continue
+
             # Skip tool_result-only messages (answers rendered on assistant side)
             tool_result = entry.get('toolUseResult', {})
             if isinstance(tool_result, dict) and 'answers' in tool_result:
@@ -1906,6 +1927,9 @@ def main():
     if stats.get('earlier_runs'):
         print(f"  omitted {stats['censored']} entries from "
               f"{stats['earlier_runs']} earlier /share run(s)")
+    if stats.get('injected'):
+        print(f"  dropped {stats['injected']} harness-injected entries "
+              f"(skill bodies, tool notices)")
     if stats.get('export_ids'):
         print(f"  redacted export id(s): {', '.join(stats['export_ids'])}")
 

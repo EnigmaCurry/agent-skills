@@ -725,6 +725,7 @@ html {{ font-size: 1.5em; }}
   --diff-add-fg: #166534;
   --diff-del-bg: rgba(243,139,168,0.2);
   --diff-del-fg: #991b1b;
+  --tts-highlight: rgba(37,99,235,0.12);
 }}
 body.dark {{
   --bg: #0f172a;
@@ -752,6 +753,7 @@ body.dark {{
   --diff-add-fg: #a6e3a1;
   --diff-del-bg: rgba(243,139,168,0.15);
   --diff-del-fg: #f38ba8;
+  --tts-highlight: rgba(96,165,250,0.18);
 }}
 body {{
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -933,6 +935,37 @@ body.tts-active .tts-bar {{ display: flex; }}
   min-width: 5rem;
   text-align: center;
 }}
+.tts-block {{ position: relative; }}
+.tts-block-btn {{
+  position: absolute;
+  /* tucked into the message's left padding (1.5rem) */
+  left: -1.45rem;
+  top: 0.1rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}}
+/* descendant, not child: in a list or table the button sits in the first item or cell */
+.tts-block:hover .tts-block-btn {{ opacity: 0.6; }}
+.tts-block-btn:hover, .tts-block-btn:focus-visible {{ opacity: 1; }}
+/* Touch devices have no hover, so keep the speakers faintly visible */
+@media (hover: none) {{
+  .tts-block-btn {{ opacity: 0.3; }}
+}}
+.tts-block.speaking {{
+  background: var(--tts-highlight);
+  box-shadow: 0 0 0 0.3rem var(--tts-highlight);
+  border-radius: 2px;
+}}
+.tts-block.speaking .tts-block-btn {{ opacity: 1; color: var(--assistant-accent); }}
 .message.speaking {{
   box-shadow: 0 0 0 2px var(--assistant-accent), 0 1px 3px var(--msg-shadow);
 }}
@@ -1256,6 +1289,7 @@ footer {{
 .minimap-content .minimap,
 .minimap-content .header-controls,
 .minimap-content .copy-btn,
+.minimap-content .tts-block-btn,
 .minimap-content .code-copy-btn {{
   display: none !important;
 }}
@@ -1297,7 +1331,6 @@ footer {{
     <div class="subtitle">{today} &middot; {html.escape(project_dir)}</div>
   </div>
   <div class="header-btns">
-    <button class="settings-btn" id="ttsHeaderBtn" onclick="toggleTTS()" title="Read aloud (p)">&#128266;</button>
     <button class="settings-btn" onclick="document.getElementById('settingsModal').classList.add('open')" title="Settings">&#9881;&#65039;</button>
   </div>
 </header>
@@ -1340,10 +1373,16 @@ footer {{
           <span>On</span>
         </div>
       </div>
-      <div class="setting-row setting-sub" id="ttsVoiceRow">
-        <span class="setting-label">Voice</span>
+      <div class="setting-row setting-sub" id="ttsVoiceUserRow">
+        <span class="setting-label">User voice</span>
         <div class="setting-control">
-          <select id="ttsVoice" onchange="ttsSetVoice(this.value)"><option value="">Browser default</option></select>
+          <select id="ttsVoiceUser" onchange="ttsSetVoice('user', this.value)"><option value="">Browser default</option></select>
+        </div>
+      </div>
+      <div class="setting-row setting-sub" id="ttsVoiceAssistantRow">
+        <span class="setting-label">Assistant voice</span>
+        <div class="setting-control">
+          <select id="ttsVoiceAssistant" onchange="ttsSetVoice('assistant', this.value)"><option value="">Browser default</option></select>
         </div>
       </div>
       <div class="setting-row setting-sub" id="ttsRateRow">
@@ -1484,8 +1523,11 @@ document.addEventListener('keydown', function(e) {{
 }});
 // Read-aloud (Web Speech API)
 var ttsSupported = 'speechSynthesis' in window;
-var ttsChunks = [], ttsIdx = 0, ttsGen = 0, ttsLastMsg = -1;
-var ttsState = 'idle', ttsVoiceName = null, ttsRate = 1;
+var ttsChunks = [], ttsBlocks = [], ttsIdx = 0, ttsGen = 0;
+var ttsLastMsg = -1, ttsLastBlock = -1;
+var ttsState = 'idle', ttsRate = 1;
+var ttsVoiceNames = {{ user: null, assistant: null }};
+var TTS_BLOCK_SEL = ':scope > p, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > ul, :scope > ol, :scope > blockquote, :scope > table, :scope > .ask-question';
 function ttsSplit(text) {{
   var out = [];
   (text.match(/[^.!?]+[.!?]*/g) || []).forEach(function(s) {{
@@ -1502,34 +1544,70 @@ function ttsSplit(text) {{
   }});
   return out;
 }}
+function ttsBlockText(el) {{
+  var clone = el.cloneNode(true);
+  // Reading bash commands and diffs aloud is useless — prose only
+  clone.querySelectorAll('pre, .tool-use, .copy-btn, .tts-block-btn').forEach(function(n) {{ n.remove(); }});
+  return clone.innerText.replace(/\\s+/g, ' ').trim();
+}}
 function ttsCollect() {{
   ttsChunks = [];
+  ttsBlocks = [];
   allMessages.forEach(function(msg, i) {{
     if (msg.classList.contains('note-message')) return;
-    var clone = msg.cloneNode(true);
-    // Reading bash commands and diffs aloud is useless — prose only
-    clone.querySelectorAll('pre, .tool-use, .copy-btn, .message-label').forEach(function(n) {{ n.remove(); }});
-    var text = clone.innerText.replace(/\\s+/g, ' ').trim();
-    if (!text) return;
-    ttsChunks.push({{ text: msg.classList.contains('user-message') ? 'User said:' : 'Claude replied:', msg: i }});
-    ttsSplit(text).forEach(function(s) {{ ttsChunks.push({{ text: s, msg: i }}); }});
+    var content = msg.querySelector('.message-content');
+    if (!content) return;
+    // No spoken "User said:" prefix -- the two voices mark who is talking
+    var role = msg.classList.contains('user-message') ? 'user' : 'assistant';
+    content.querySelectorAll(TTS_BLOCK_SEL).forEach(function(el) {{
+      if (el.classList.contains('tool-use')) return;
+      var text = ttsBlockText(el);
+      if (!text) return;
+      var b = ttsBlocks.length;
+      ttsBlocks.push(el);
+      ttsSplit(text).forEach(function(s) {{ ttsChunks.push({{ text: s, msg: i, block: b, role: role }}); }});
+    }});
   }});
 }}
-function ttsHighlight(i) {{
-  if (i === ttsLastMsg) return;
-  ttsLastMsg = i;
+function ttsHighlight(chunk) {{
+  if (chunk.block === ttsLastBlock) return;
+  ttsLastBlock = chunk.block;
+  ttsBlocks.forEach(function(b) {{ b.classList.remove('speaking'); }});
+  var el = ttsBlocks[chunk.block];
+  if (!el) return;
+  el.classList.add('speaking');
+  if (chunk.msg !== ttsLastMsg) {{
+    ttsLastMsg = chunk.msg;
+    allMessages.forEach(function(m) {{ m.classList.remove('speaking'); }});
+    if (allMessages[chunk.msg]) allMessages[chunk.msg].classList.add('speaking');
+    currentIdx = chunk.msg;
+  }}
+  // Only scroll when the block has drifted out of comfortable view
+  var r = el.getBoundingClientRect();
+  if (r.top < 48 || r.bottom > window.innerHeight - 96) {{
+    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+  }}
+}}
+function ttsClearHighlight() {{
+  ttsLastMsg = -1;
+  ttsLastBlock = -1;
+  ttsBlocks.forEach(function(b) {{ b.classList.remove('speaking'); }});
   allMessages.forEach(function(m) {{ m.classList.remove('speaking'); }});
-  var msg = allMessages[i];
-  if (!msg) return;
-  msg.classList.add('speaking');
-  currentIdx = i;
-  msg.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
 }}
 function ttsUpdate() {{
   var p = document.getElementById('ttsProgress');
   if (p) p.textContent = Math.min(ttsIdx + 1, ttsChunks.length) + ' / ' + ttsChunks.length;
   var b = document.getElementById('ttsPlayBtn');
   if (b) b.innerHTML = ttsState === 'playing' ? '&#9208;&#65039;' : '&#9654;&#65039;';
+}}
+function ttsVoiceFor(role) {{
+  var want = ttsVoiceNames[role === 'user' ? 'user' : 'assistant'];
+  if (!want) return null;
+  var voices = speechSynthesis.getVoices();
+  for (var i = 0; i < voices.length; i++) {{
+    if (voices[i].name === want) return voices[i];
+  }}
+  return null;
 }}
 function ttsSpeak() {{
   if (ttsState !== 'playing') return;
@@ -1538,13 +1616,9 @@ function ttsSpeak() {{
   var gen = ttsGen;
   var u = new SpeechSynthesisUtterance(chunk.text);
   u.rate = ttsRate;
-  if (ttsVoiceName) {{
-    var voices = speechSynthesis.getVoices();
-    for (var i = 0; i < voices.length; i++) {{
-      if (voices[i].name === ttsVoiceName) {{ u.voice = voices[i]; u.lang = voices[i].lang; break; }}
-    }}
-  }}
-  u.onstart = function() {{ ttsHighlight(chunk.msg); }};
+  var voice = ttsVoiceFor(chunk.role);
+  if (voice) {{ u.voice = voice; u.lang = voice.lang; }}
+  u.onstart = function() {{ if (gen === ttsGen) ttsHighlight(chunk); }};
   u.onend = function() {{ if (gen === ttsGen) {{ ttsIdx++; ttsSpeak(); ttsUpdate(); }} }};
   u.onerror = function(e) {{
     if (gen !== ttsGen || e.error === 'interrupted' || e.error === 'canceled') return;
@@ -1553,58 +1627,93 @@ function ttsSpeak() {{
   speechSynthesis.speak(u);
   ttsUpdate();
 }}
-function ttsStart() {{
-  if (!ttsSupported) return;
-  if (!ttsChunks.length) ttsCollect();
-  if (!ttsChunks.length) return;
+function ttsPlayFrom(idx) {{
+  if (!ttsSupported || !ttsChunks.length) return;
+  ttsGen++;
+  speechSynthesis.cancel();
   document.body.classList.add('tts-active');
   document.getElementById('ttsToggle').classList.add('active');
-  speechSynthesis.cancel();
+  ttsIdx = Math.max(0, Math.min(ttsChunks.length - 1, idx));
+  ttsClearHighlight();
   ttsState = 'playing';
   setTimeout(ttsSpeak, 50);
   ttsUpdate();
+}}
+function ttsStart() {{
+  if (!ttsSupported) return;
+  if (!ttsChunks.length) ttsCollect();
+  ttsPlayFrom(ttsIdx);
 }}
 function ttsStop() {{
   ttsGen++;
   ttsState = 'idle';
   if (ttsSupported) speechSynthesis.cancel();
   ttsIdx = 0;
-  ttsLastMsg = -1;
+  ttsClearHighlight();
   document.body.classList.remove('tts-active');
   document.getElementById('ttsToggle').classList.remove('active');
-  allMessages.forEach(function(m) {{ m.classList.remove('speaking'); }});
+  ttsUpdate();
+}}
+function ttsPause() {{
+  // cancel() cuts off mid-sentence; pause() would coast to the end of it.
+  // The sentence is replayed from its start on resume.
+  ttsGen++;
+  ttsState = 'paused';
+  if (ttsSupported) speechSynthesis.cancel();
   ttsUpdate();
 }}
 function ttsPlayPause() {{
   if (!ttsSupported) return;
-  if (ttsState === 'playing') {{
-    ttsState = 'paused';
-    speechSynthesis.pause();
-    ttsUpdate();
-  }} else if (ttsState === 'paused') {{
-    ttsState = 'playing';
-    speechSynthesis.resume();
-    ttsUpdate();
-  }} else {{
-    ttsStart();
-  }}
+  if (ttsState === 'playing') ttsPause();
+  else ttsStart();
 }}
 function toggleTTS() {{
   if (ttsState === 'idle') ttsStart(); else ttsStop();
 }}
 function ttsStep(dir) {{
   if (ttsState === 'idle') return;
-  ttsGen++;
-  speechSynthesis.cancel();
-  ttsIdx = Math.max(0, Math.min(ttsChunks.length - 1, ttsIdx + dir));
-  ttsLastMsg = -1;
-  ttsState = 'playing';
-  setTimeout(ttsSpeak, 50);
-  ttsUpdate();
+  ttsPlayFrom(ttsIdx + dir);
 }}
-function ttsSetVoice(name) {{
-  ttsVoiceName = name || null;
-  try {{ localStorage.setItem('ttsVoice', name); }} catch (e) {{}}
+function ttsPlayBlock(el) {{
+  if (!ttsChunks.length) ttsCollect();
+  var b = ttsBlocks.indexOf(el);
+  if (b < 0) return;
+  if (ttsState === 'playing' && ttsChunks[ttsIdx] && ttsChunks[ttsIdx].block === b) {{
+    ttsPause();
+    return;
+  }}
+  for (var i = 0; i < ttsChunks.length; i++) {{
+    if (ttsChunks[i].block === b) {{ ttsPlayFrom(i); return; }}
+  }}
+}}
+function ttsAddBlockButtons() {{
+  ttsBlocks.forEach(function(el) {{
+    el.classList.add('tts-block');
+    var btn = document.createElement('button');
+    btn.className = 'tts-block-btn';
+    btn.type = 'button';
+    btn.title = 'Read aloud from here';
+    btn.setAttribute('aria-label', 'Read aloud from here');
+    btn.innerHTML = '&#128266;';
+    btn.addEventListener('click', function(e) {{
+      e.preventDefault();
+      e.stopPropagation();
+      ttsPlayBlock(el);
+    }});
+    // A button is not a valid child of ul/ol/table, so nest it in the first
+    // item or cell — the block is the positioned ancestor either way
+    var host = el;
+    if (el.tagName === 'UL' || el.tagName === 'OL') host = el.querySelector('li') || null;
+    else if (el.tagName === 'TABLE') host = el.querySelector('th, td') || null;
+    if (!host) return;
+    host.insertBefore(btn, host.firstChild);
+  }});
+}}
+function ttsSetVoice(role, name) {{
+  var key = role === 'user' ? 'user' : 'assistant';
+  ttsVoiceNames[key] = name || null;
+  try {{ localStorage.setItem('ttsVoice-' + key, name); }} catch (e) {{}}
+  // Re-say the current sentence so the new voice is audible right away
   if (ttsState !== 'idle') ttsStep(0);
 }}
 function ttsSetRate(v) {{
@@ -1614,39 +1723,50 @@ function ttsSetRate(v) {{
 }}
 (function() {{
   if (!ttsSupported) {{
-    ['ttsRow', 'ttsVoiceRow', 'ttsRateRow', 'ttsHeaderBtn'].forEach(function(id) {{
+    ['ttsRow', 'ttsVoiceUserRow', 'ttsVoiceAssistantRow', 'ttsRateRow'].forEach(function(id) {{
       var el = document.getElementById(id);
       if (el) el.style.display = 'none';
     }});
     return;
   }}
   try {{
-    ttsVoiceName = localStorage.getItem('ttsVoice') || null;
+    // One voice per role now; a single voice saved by an older page seeds both
+    var legacy = localStorage.getItem('ttsVoice');
+    ttsVoiceNames.user = localStorage.getItem('ttsVoice-user') || legacy || null;
+    ttsVoiceNames.assistant = localStorage.getItem('ttsVoice-assistant') || legacy || null;
     var saved = parseFloat(localStorage.getItem('ttsRate'));
     if (saved) ttsRate = saved;
   }} catch (e) {{}}
   document.getElementById('ttsRate').value = ttsRate;
   document.getElementById('ttsRateLabel').innerHTML = ttsRate.toFixed(1) + '&times;';
-  var sel = document.getElementById('ttsVoice');
+  var sels = {{ user: document.getElementById('ttsVoiceUser'),
+               assistant: document.getElementById('ttsVoiceAssistant') }};
   function fillVoices() {{
     var voices = speechSynthesis.getVoices();
-    if (!voices.length || sel.getAttribute('data-filled') === String(voices.length)) return;
-    sel.setAttribute('data-filled', String(voices.length));
-    sel.innerHTML = '';
-    var def = document.createElement('option');
-    def.value = '';
-    def.textContent = 'Browser default';
-    sel.appendChild(def);
-    voices.forEach(function(v) {{
-      var o = document.createElement('option');
-      o.value = v.name;
-      o.textContent = v.name + ' (' + v.lang + ')';
-      if (v.name === ttsVoiceName) o.selected = true;
-      sel.appendChild(o);
+    if (!voices.length) return;
+    Object.keys(sels).forEach(function(role) {{
+      var sel = sels[role];
+      if (sel.getAttribute('data-filled') === String(voices.length)) return;
+      sel.setAttribute('data-filled', String(voices.length));
+      sel.innerHTML = '';
+      var def = document.createElement('option');
+      def.value = '';
+      def.textContent = 'Browser default';
+      sel.appendChild(def);
+      voices.forEach(function(v) {{
+        var o = document.createElement('option');
+        o.value = v.name;
+        o.textContent = v.name + ' (' + v.lang + ')';
+        if (v.name === ttsVoiceNames[role]) o.selected = true;
+        sel.appendChild(o);
+      }});
     }});
   }}
   fillVoices();
   speechSynthesis.addEventListener('voiceschanged', fillVoices);
+  // Collect up front so every prose block gets its own start-here speaker
+  ttsCollect();
+  ttsAddBlockButtons();
   window.addEventListener('beforeunload', function() {{ speechSynthesis.cancel(); }});
 }})();
 // Load anchor on page load

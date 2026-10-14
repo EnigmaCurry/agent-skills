@@ -33,6 +33,15 @@ Otherwise run the setup flow:
 **b)** Ask with AskUserQuestion whether to use an existing remote or
 create a new one.
 
+For an existing remote, check `rclone config show <name>` for
+`no_check_bucket` — a remote created outside this flow often lacks it,
+which breaks the upload in step 5. Fix it now rather than at upload
+time:
+
+```bash
+rclone config update <name> no_check_bucket=true acl=public-read
+```
+
 **c)** For a new remote, collect: remote name (default
 `claude-export`), S3 provider (AWS, Cloudflare R2, Minio, Backblaze B2,
 DigitalOcean Spaces, Other), endpoint URL (skip for AWS), access key
@@ -130,3 +139,23 @@ rm -f "/tmp/${FILENAME}"
 Give the user the URL, and note that the random directory makes it
 unguessable but not private — anyone with the link can read it, and it
 may be cached or indexed even if deleted later.
+
+### If the upload fails with `CreateBucket` / `AccessDenied`
+
+```
+Failed to copy: failed to prepare upload: operation error S3:
+CreateBucket, https response error StatusCode: 403 ... AccessDenied
+```
+
+The remote is missing `no_check_bucket`, so rclone tries to create the
+bucket before every upload and the key is not permitted to. The file
+itself was never sent, and retrying verbatim fails identically. Confirm
+the bucket is otherwise reachable, then set the flag and upload again:
+
+```bash
+rclone lsd <remote>:<bucket>                                    # exit 0 = credentials fine
+rclone config update <remote> no_check_bucket=true acl=public-read
+```
+
+This is a persistent edit to the user's rclone config — say so when
+reporting it.

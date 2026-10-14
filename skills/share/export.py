@@ -1288,7 +1288,7 @@ footer {{
 }}
 </style>
 </head>
-<body class="dark">
+<body class="dark chat-mode">
 <div class="accent-bar"></div>
 <div class="container">
 <header>
@@ -1427,8 +1427,10 @@ function toggleTheme() {{
   }} else {{
     document.getElementById('themeToggle').classList.add('active');
   }}
-  if (localStorage.getItem('viewMode') === 'chat') {{
-    document.body.classList.add('chat-mode');
+  // Chat is the default layout; only an explicit choice of linear turns it off
+  if (localStorage.getItem('viewMode') === 'linear') {{
+    document.body.classList.remove('chat-mode');
+  }} else {{
     document.getElementById('viewToggle').classList.add('active');
   }}
   if (localStorage.getItem('minimap') === 'off') {{

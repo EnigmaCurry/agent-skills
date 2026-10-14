@@ -37,10 +37,12 @@ ln -sfn ~/git/vendor/enigmacurry/agent-skills/skills ~/.claude/skills
 
 ### /share
 
-Export the current conversation as a styled HTML page, upload it to an
-S3-compatible bucket via rclone, and return a public URL. First run
-walks you through rclone remote and bucket configuration. Never
-self-invoked; you have to ask for it.
+Export the current conversation as a styled HTML page, scan it for
+secrets, and — after you approve — upload it to an S3-compatible bucket
+via rclone and return a public URL. First run walks you through rclone
+remote and bucket configuration. Never self-invoked, and the upload
+itself is deliberately left out of `allowed-tools` so publishing always
+prompts.
 
 ### /rust-axum-template
 

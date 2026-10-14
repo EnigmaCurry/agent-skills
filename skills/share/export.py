@@ -256,6 +256,100 @@ def parse_jsonl(filepath):
     return messages
 
 
+# Patterns for material that must not be published by accident. The export
+# renders tool *inputs* verbatim -- bash commands, written file contents, edit
+# diffs -- so anything secret that passed through them ships with the page.
+SECRET_PATTERNS = [
+    ('aws-access-key', r'(?<![A-Z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![0-9A-Z])'),
+    ('github-token', r'gh[pousr]_[A-Za-z0-9]{36,}'),
+    ('github-pat', r'github_pat_[A-Za-z0-9_]{22,}'),
+    ('anthropic-key', r'sk-ant-[A-Za-z0-9_\-]{20,}'),
+    ('openai-style-key', r'(?<![A-Za-z0-9])sk-[A-Za-z0-9]{32,}'),
+    ('slack-token', r'xox[abprs]-[A-Za-z0-9-]{10,}'),
+    ('google-api-key', r'AIza[0-9A-Za-z_\-]{35}'),
+    ('private-key-block', r'-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----'),
+    ('jwt', r'eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}'),
+    ('url-basic-auth', r'https?://[^/\s:@]+:[^/\s:@]{3,}@'),
+    # Backticks excluded so prose about `-u user:pass` is not a finding.
+    ('cli-basic-auth', r'(?:^|\s)-u\s+[^\s:`]{2,}:([^\s`]{6,})'),
+    # No leading \b on the keyword: the common shapes are prefixed env vars
+    # (DB_PASSWORD, GITHUB_TOKEN), and \b never matches after an underscore.
+    ('secret-assignment',
+     r'(?i)(?:password|passwd|secret|token|api[_-]?key|'
+     r'access[_-]?key|auth[_-]?token|client[_-]?secret)\b\s*[=:]\s*'
+     r'["\']?([^\s"\'#,}]{8,})'),
+]
+
+# Obvious non-secrets that the assignment pattern would otherwise flag.
+PLACEHOLDER_HINTS = ('<', '$', '{{', '***', 'xxx', 'changeme', 'example',
+                     'your-', 'yourkey', 'redacted', 'placeholder', 'dummy',
+                     'fake', 'none', 'null', 'true', 'false')
+
+
+def redact(value):
+    value = value.strip()
+    if len(value) <= 8:
+        return '*' * len(value)
+    return f'{value[:4]}{"*" * 6}{value[-2:]}'
+
+
+def looks_like_placeholder(value):
+    low = value.strip().strip('\'"').lower()
+    return any(h in low for h in PLACEHOLDER_HINTS)
+
+
+def scan_text(text, where, findings):
+    for kind, pattern in SECRET_PATTERNS:
+        for match in re.finditer(pattern, text):
+            hit = match.group(match.lastindex or 0)
+            if kind == 'secret-assignment' and looks_like_placeholder(hit):
+                continue
+            findings.append((where, kind, redact(hit)))
+
+
+def flatten_values(value):
+    """Every string inside a tool input, as separate lines.
+
+    Scanning json.dumps() of the input instead would glue a file's lines
+    together through escaped newlines, letting one placeholder on a later
+    line suppress a real secret on an earlier one.
+    """
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [t for v in value.values() for t in flatten_values(v)]
+    if isinstance(value, (list, tuple)):
+        return [t for v in value for t in flatten_values(v)]
+    return [str(value)]
+
+
+def scan_messages(messages):
+    """Find likely secrets in everything the HTML page would render."""
+    findings = []
+    for idx, msg in enumerate(messages):
+        label = f'msg {idx} ({msg["role"]})'
+        if msg['role'] == 'user':
+            scan_text(msg['text'], label, findings)
+            continue
+        for part in msg.get('parts', []):
+            if part['type'] == 'text':
+                scan_text(part['content'], label, findings)
+            elif part['type'] == 'tool_use':
+                scan_text('\n'.join(flatten_values(part['input'])),
+                          f'{label} {part["name"]}', findings)
+            elif part['type'] == 'ask_user':
+                scan_text('\n'.join(flatten_values(part['input'])),
+                          label, findings)
+    # Collapse duplicates while keeping first-seen order.
+    seen, unique = set(), []
+    for item in findings:
+        if item in seen:
+            continue
+        seen.add(item)
+        unique.append(item)
+    return unique
+
+
 def tool_summary(icon, body, detail=''):
     """One-line tool card, optionally expandable to a block of detail text."""
     summary = (f'<span class="tool-write-summary">'
@@ -1420,12 +1514,22 @@ def main():
     parser.add_argument('--cwd', help='Working directory for session detection')
     parser.add_argument('--first-message', action='store_true',
                         help='Print first user message and exit')
+    parser.add_argument('--scan', action='store_true',
+                        help='Report likely secrets in the rendered content and exit')
     args = parser.parse_args()
 
     jsonl_path = args.jsonl or find_session(args.cwd)
 
     if args.first_message:
         print(first_user_message(jsonl_path))
+        return
+
+    if args.scan:
+        findings = scan_messages(parse_jsonl(jsonl_path))
+        for where, kind, preview in findings:
+            print(f'{where}: [{kind}] {preview}')
+        print(f'SCAN: {len(findings)} potential secret(s)'
+              if findings else 'SCAN: clean')
         return
 
     project_dir = args.cwd or os.getcwd()

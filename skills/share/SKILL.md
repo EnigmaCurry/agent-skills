@@ -2,11 +2,17 @@
 name: share
 description: Export this conversation as a styled HTML page, upload it to an S3-compatible bucket, and return a public URL.
 disable-model-invocation: true
-allowed-tools: Bash(rclone listremotes), Bash(python3 ${CLAUDE_SKILL_DIR}/export.py:*), Bash(bash ${CLAUDE_SKILL_DIR}/upload.sh:*), AskUserQuestion
+allowed-tools: Bash(rclone listremotes), Bash(python3 ${CLAUDE_SKILL_DIR}/export.py:*), AskUserQuestion
 ---
 
 Export the current conversation as a styled HTML page, upload it to an
 S3-compatible bucket, and return the public URL.
+
+**This publishes to a public URL.** The page renders tool inputs
+verbatim — bash commands, written file contents, edit diffs — so
+anything secret that passed through them ships with it. Never upload
+before completing the review step below, and never upload without the
+user's explicit go-ahead in this turn.
 
 Companion scripts live next to this file:
 
@@ -73,11 +79,47 @@ the chosen title in kebab-case ("Agent Skills Setup" →
 
 ## 3. Generate the HTML
 
+Write it somewhere local first — this is not the publish step:
+
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/export.py" --cwd "$(pwd)" --title "${TITLE}" -o "/tmp/${FILENAME}"
 ```
 
-## 4. Upload
+## 4. Review before publishing
+
+Scan what the page would expose:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/export.py" --cwd "$(pwd)" --scan
+```
+
+Findings print as `msg N (role) Tool: [kind] redacted-preview`, ending
+in a `SCAN:` line. The scan covers message text and tool inputs, which
+is exactly what the page renders.
+
+Then:
+
+- **If anything was found**, show every finding verbatim and treat
+  publishing as blocked. Say which message and tool each came from so
+  the user can judge it. Offer to delete the local file, or to publish
+  anyway only if they look and tell you the hits are false positives.
+  Do not characterize a finding as a false positive yourself.
+- **If the scan is clean**, say so — and say plainly that it is pattern
+  matching, not a guarantee: it will not catch an unrecognized
+  credential format, a private hostname, an internal URL, or anything
+  else the user would not want public.
+
+Either way, give the user the local path (`/tmp/${FILENAME}`) so they
+can open it, and tell them roughly what the export contains: every
+message, every tool input, no tool output.
+
+Then ask with AskUserQuestion whether to publish. Offer "Publish" and
+"Don't publish — delete the file". Stop here if they decline, and
+`rm -f "/tmp/${FILENAME}"`.
+
+## 5. Upload
+
+Only after an explicit yes:
 
 ```bash
 RANDOM_DIR=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-z0-9' | head -c 8)
@@ -85,4 +127,6 @@ URL=$(bash "${CLAUDE_SKILL_DIR}/upload.sh" "/tmp/${FILENAME}" "exports/${RANDOM_
 rm -f "/tmp/${FILENAME}"
 ```
 
-Give the user the URL.
+Give the user the URL, and note that the random directory makes it
+unguessable but not private — anyone with the link can read it, and it
+may be cached or indexed even if deleted later.

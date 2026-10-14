@@ -167,33 +167,113 @@ def md_to_html(text):
     return '\n'.join(result)
 
 
-def parse_jsonl(filepath):
+# A /share run writes its own URL into the conversation, so a later export of
+# the same thread would republish the earlier page's supposedly unguessable
+# path. Three defenses: truncate at the invocation that is running now, omit
+# the steps of any earlier run, and redact export ids wherever they survive.
+SHARE_COMMAND_RE = re.compile(r'<command-name>\s*/?share\s*</command-name>')
+EXPORT_ID_RE = re.compile(r'exports/([a-z0-9]{8})\b')
+
+SHARE_NOTE = ('An earlier `/share` export ran at this point. Its steps are '
+              'omitted here, because they contain that export\'s URL.')
+
+
+def is_share_invocation(entry):
+    """True if this entry is the user invoking the /share skill."""
+    if entry.get('type') != 'user':
+        return False
+    content = entry.get('message', {}).get('content', '')
+    return isinstance(content, str) and bool(SHARE_COMMAND_RE.search(content))
+
+
+def is_typed_user_entry(entry):
+    """True for a message the user typed; tool results carry list content."""
+    if entry.get('type') != 'user':
+        return False
+    return isinstance(entry.get('message', {}).get('content', ''), str)
+
+
+def redact_export_ids(raw, ids):
+    """Blank previously published export ids throughout the raw transcript.
+
+    Applied to the JSONL text rather than to parsed values so that message
+    prose, tool inputs and anything nested inside them are all covered by one
+    pass. Substituting a same-shape token keeps every JSON string valid.
+    """
+    for export_id in ids:
+        raw = re.sub(r'\b%s\b' % re.escape(export_id), 'REDACTED', raw)
+    return raw
+
+
+def plan_share_spans(entries):
+    """Decide which entries to drop for the current and earlier /share runs.
+
+    Returns (keep_count, censored, note_at). The current invocation and
+    everything after it is cut by keep_count -- the page cannot name a URL
+    that does not exist yet. Each earlier run becomes a single note, spanning
+    from its command up to the next message the user typed.
+    """
+    share_idx = [i for i, e in enumerate(entries) if is_share_invocation(e)]
+    keep_count = len(entries)
+    if share_idx:
+        keep_count = share_idx[-1]
+        share_idx = share_idx[:-1]
+
+    censored, note_at = set(), {}
+    for i in share_idx:
+        if i >= keep_count:
+            continue
+        j = i + 1
+        while j < keep_count and not is_typed_user_entry(entries[j]):
+            j += 1
+        note_at[i] = SHARE_NOTE
+        censored.update(range(i, j))
+    return keep_count, censored, note_at
+
+
+def parse_jsonl(filepath, stats=None):
     """Parse JSONL and extract conversation messages."""
     # First pass: collect AskUserQuestion answers keyed by tool_use_id
     answers_by_id = {}
     entries = []
     with open(filepath, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            entries.append(entry)
-            if entry.get('type') == 'user':
-                tool_result = entry.get('toolUseResult', {})
-                if isinstance(tool_result, dict) and 'answers' in tool_result:
-                    content = entry.get('message', {}).get('content', [])
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get('type') == 'tool_result':
-                                answers_by_id[block.get('tool_use_id')] = tool_result['answers']
+        raw = f.read()
+    export_ids = sorted(set(EXPORT_ID_RE.findall(raw)))
+    if export_ids:
+        raw = redact_export_ids(raw, export_ids)
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        entries.append(entry)
+        if entry.get('type') == 'user':
+            tool_result = entry.get('toolUseResult', {})
+            if isinstance(tool_result, dict) and 'answers' in tool_result:
+                content = entry.get('message', {}).get('content', [])
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get('type') == 'tool_result':
+                            answers_by_id[block.get('tool_use_id')] = tool_result['answers']
+
+    keep_count, censored, note_at = plan_share_spans(entries)
+    if stats is not None:
+        stats['truncated'] = len(entries) - keep_count
+        stats['censored'] = len(censored)
+        stats['earlier_runs'] = len(note_at)
+        stats['export_ids'] = export_ids
 
     # Second pass: build messages
     messages = []
-    for entry in entries:
+    for entry_idx, entry in enumerate(entries[:keep_count]):
+        if entry_idx in note_at:
+            messages.append({'role': 'note', 'text': note_at[entry_idx],
+                             'timestamp': entry.get('timestamp')})
+        if entry_idx in censored:
+            continue
         msg_type = entry.get('type')
         if msg_type == 'user':
             # Skip tool_result-only messages (answers rendered on assistant side)
@@ -328,7 +408,7 @@ def scan_messages(messages):
     findings = []
     for idx, msg in enumerate(messages):
         label = f'msg {idx} ({msg["role"]})'
-        if msg['role'] == 'user':
+        if msg['role'] in ('user', 'note'):
             scan_text(msg['text'], label, findings)
             continue
         for part in msg.get('parts', []):
@@ -374,6 +454,13 @@ def generate_html(messages, project_dir, title='Conversation'):
             content = md_to_html(msg['text'])
             msg_html.append(f'''<div class="message user-message" id="msg-{msg_idx}">
   <a class="message-label user-label" href="#msg-{msg_idx}" onclick="updateHash(this)">User</a>
+  <div class="message-content">{content}</div>
+</div>''')
+            msg_idx += 1
+        elif msg['role'] == 'note':
+            content = md_to_html(msg['text'])
+            msg_html.append(f'''<div class="message note-message" id="msg-{msg_idx}">
+  <a class="message-label note-label" href="#msg-{msg_idx}" onclick="updateHash(this)">Omitted</a>
   <div class="message-content">{content}</div>
 </div>''')
             msg_idx += 1
@@ -810,6 +897,14 @@ body.chat-mode .assistant-message {{
 }}
 .user-label {{ color: var(--user-accent); }}
 .assistant-label {{ color: var(--assistant-accent); }}
+.note-message {{
+  border-left-color: var(--fg-faint);
+  background: var(--card-bg);
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  font-style: italic;
+}}
+.note-label {{ color: var(--fg-faint); font-style: normal; }}
 .message-content p {{ margin-bottom: 0.5rem; }}
 .message-content h1 {{ font-size: 1.4rem; margin: 1rem 0 0.5rem; }}
 .message-content h2 {{ font-size: 1.2rem; margin: 0.8rem 0 0.4rem; }}
@@ -1525,7 +1620,7 @@ def main():
         return
 
     if args.scan:
-        findings = scan_messages(parse_jsonl(jsonl_path))
+        findings = scan_messages(parse_jsonl(jsonl_path, stats={}))
         for where, kind, preview in findings:
             print(f'{where}: [{kind}] {preview}')
         print(f'SCAN: {len(findings)} potential secret(s)'
@@ -1539,14 +1634,26 @@ def main():
         basename = os.path.splitext(os.path.basename(args.output))[0]
         title = basename.replace('-', ' ').replace('_', ' ').title()
 
-    messages = parse_jsonl(jsonl_path)
+    stats = {}
+    messages = parse_jsonl(jsonl_path, stats=stats)
+    if not messages:
+        print('Nothing to export: the transcript holds no messages before '
+              'the /share invocation.', file=sys.stderr)
+        return 1
     html_content = generate_html(messages, project_dir, title)
 
     with open(args.output, 'w') as f:
         f.write(html_content)
 
     print(f"Generated {args.output} with {len(messages)} messages")
+    if stats.get('truncated'):
+        print(f"  truncated {stats['truncated']} entries at the /share invocation")
+    if stats.get('earlier_runs'):
+        print(f"  omitted {stats['censored']} entries from "
+              f"{stats['earlier_runs']} earlier /share run(s)")
+    if stats.get('export_ids'):
+        print(f"  redacted export id(s): {', '.join(stats['export_ids'])}")
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main() or 0)

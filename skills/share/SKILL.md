@@ -101,6 +101,18 @@ Write it somewhere local first — this is not the publish step:
 python3 "${CLAUDE_SKILL_DIR}/export.py" --cwd "$(pwd)" --title "${TITLE}" -o "/tmp/${FILENAME}"
 ```
 
+The transcript is cut at the `/share` invocation, so the page ends
+where the user typed the command and never contains the steps of this
+export. Any *earlier* `/share` run in the same thread collapses to a
+short "Omitted" note, and export ids from previously published pages
+are replaced with `REDACTED` wherever they still appear. Without that,
+each export would republish the unguessable path of the one before it.
+
+Report whichever of these the command prints — `truncated`, `omitted`,
+`redacted export id(s)` — so the user knows what was dropped. It exits
+non-zero and writes nothing if there is no conversation before the
+invocation.
+
 ## 4. Review before publishing
 
 Scan what the page would expose:
@@ -127,7 +139,11 @@ Then:
 
 Either way, give the user the local path (`/tmp/${FILENAME}`) so they
 can open it, and tell them roughly what the export contains: every
-message, every tool input, no tool output.
+message up to the `/share` command, every tool input, no tool output.
+
+The redaction covers export ids in the `exports/<id>` form. It is not a
+general privacy pass — bucket hostnames, local paths and usernames all
+still render, and the scan does not flag them.
 
 Then ask with AskUserQuestion whether to publish. Offer "Publish" and
 "Don't publish — delete the file". Stop here if they decline, and

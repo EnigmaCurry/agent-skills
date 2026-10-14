@@ -2,7 +2,7 @@
 name: share
 description: Export this conversation as a styled HTML page, upload it to an S3-compatible bucket, and return a public URL.
 disable-model-invocation: true
-allowed-tools: Bash(rclone listremotes), Bash(python3 ${CLAUDE_SKILL_DIR}/export.py:*), AskUserQuestion
+allowed-tools: Bash(rclone listremotes), Bash(rclone lsd:*), Bash(python3 ${CLAUDE_SKILL_DIR}/export.py:*), AskUserQuestion
 ---
 
 Export the current conversation as a styled HTML page, upload it to an
@@ -33,10 +33,17 @@ Otherwise run the setup flow:
 **b)** Ask with AskUserQuestion whether to use an existing remote or
 create a new one.
 
-For an existing remote, check `rclone config show <name>` for
-`no_check_bucket` — a remote created outside this flow often lacks it,
-which breaks the upload in step 5. Fix it now rather than at upload
-time:
+For an existing remote, check whether it has `no_check_bucket` — one
+created outside this flow often lacks it, which breaks the upload in
+step 5. Filter the output; `rclone config show` prints the access key
+and secret in full, and there is no reason to put them in the
+transcript:
+
+```bash
+rclone config show <name> | grep -E '^(no_check_bucket|acl)'
+```
+
+Fix it now rather than at upload time:
 
 ```bash
 rclone config update <name> no_check_bucket=true acl=public-read

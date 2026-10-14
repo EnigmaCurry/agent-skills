@@ -1,0 +1,13 @@
+{
+  "name": "agent-skills",
+  "displayName": "EnigmaCurry's Agent Skills",
+  "version": "0.1.0",
+  "description": "Skills for cloning repos with deploy keys, scaffolding Rust Axum projects, and publishing a conversation as a styled HTML page.",
+  "author": {
+    "name": "EnigmaCurry",
+    "url": "https://blog.rymcg.tech"
+  },
+  "homepage": "https://github.com/EnigmaCurry/agent-skills",
+  "repository": "https://github.com/EnigmaCurry/agent-skills",
+  "keywords": ["git-deploy", "rust", "axum", "export", "s3", "nix"]
+}

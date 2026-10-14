@@ -8,7 +8,29 @@ Designed for use with the `claude` and `opencode` profiles from
 which provide a ready-made environment with all required dependencies
 pre-installed.
 
-## Quickstart for AI agents
+## Install
+
+### Claude Code: as a plugin
+
+This repo is its own plugin marketplace, so no cloning or symlinking:
+
+```bash
+claude plugin marketplace add EnigmaCurry/agent-skills
+claude plugin install agent-skills@enigmacurry
+```
+
+Or from inside a session: `/plugin marketplace add EnigmaCurry/agent-skills`,
+then `/plugin install agent-skills@enigmacurry`.
+
+The skills then answer to both `/share` and `/agent-skills:share`, and
+`claude plugin details agent-skills` prints the component inventory and
+the token cost (currently ~221 tokens always-on across the three).
+
+To update an installed copy, `claude plugin update agent-skills`. That
+only picks up a new `version` in `.claude-plugin/plugin.json`, so bump
+it when publishing a change worth pushing out.
+
+### OpenCode, or any other harness: symlink
 
 Paste the following prompt into a fresh agent session to bootstrap the
 skills onto a new machine (customize as needed):
@@ -32,6 +54,9 @@ The skills path depends on the agent:
 git clone https://github.com/EnigmaCurry/agent-skills ~/git/vendor/enigmacurry/agent-skills
 ln -sfn ~/git/vendor/enigmacurry/agent-skills/skills ~/.claude/skills
 ```
+
+Pick one method or the other. Installing the plugin *and* symlinking
+`skills/` loads every skill twice.
 
 ## Skills
 
@@ -62,16 +87,24 @@ Each skill is a directory under `skills/` containing a `SKILL.md`, plus
 any scripts it needs:
 
 ```
+.claude-plugin/
+  marketplace.json  # catalog; lists this repo as one plugin
+  plugin.json       # plugin metadata (name, version, author)
 skills/
   git-deploy/
     SKILL.md
   rust-axum-template/
     SKILL.md
   share/
-    SKILL.md      # skill prompt
-    export.py     # JSONL → HTML conversion
-    upload.sh     # rclone upload
+    SKILL.md        # skill prompt
+    export.py       # JSONL → HTML conversion
+    upload.sh       # rclone upload
 ```
+
+The repo root is both the marketplace and the single plugin it lists —
+the entry's `source` is `"./"` — so `skills/` stays at the top level
+and the symlink install keeps working unchanged. Validate any edit to
+either manifest with `claude plugin validate ./ --strict`.
 
 `SKILL.md` opens with YAML frontmatter — `name` and `description` (how
 the agent decides to invoke it), optional `arguments` for `$named`

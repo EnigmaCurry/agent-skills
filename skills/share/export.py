@@ -18,6 +18,8 @@ def strip_system_tags(text):
     text = re.sub(r'<command-message>.*?</command-message>', '', text, flags=re.DOTALL)
     text = re.sub(r'<command-args>.*?</command-args>', '', text, flags=re.DOTALL)
     text = re.sub(r'<local-command-stdout>.*?</local-command-stdout>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<task-notification>.*?</task-notification>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<canceled>.*?</canceled>', '', text, flags=re.DOTALL)
     text = re.sub(r'<functions>.*?</functions>', '', text, flags=re.DOTALL)
     text = re.sub(r'<bash-input>(.*?)</bash-input>', r'`\1`', text, flags=re.DOTALL)
     text = re.sub(r'<bash-stdout>.*?</bash-stdout>', '', text, flags=re.DOTALL)
@@ -254,6 +256,18 @@ def parse_jsonl(filepath):
     return messages
 
 
+def tool_summary(icon, body, detail=''):
+    """One-line tool card, optionally expandable to a block of detail text."""
+    summary = (f'<span class="tool-write-summary">'
+               f'<span class="tool-write-icon">{icon}</span> {body}</span>')
+    if not detail or not detail.strip():
+        return f'<div class="tool-use tool-write">{summary}</div>'
+    return (f'<details class="tool-use tool-write">\n'
+            f'  <summary class="tool-bash-preview">{summary}</summary>\n'
+            f'  <pre class="tool-input"><code>{html.escape(detail.strip())}</code></pre>\n'
+            f'</details>')
+
+
 def generate_html(messages, project_dir, title='Conversation'):
     """Generate styled HTML from messages."""
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -309,7 +323,7 @@ def generate_html(messages, project_dir, title='Conversation'):
                     tool_name = html.escape(part['name'])
                     tool_input = part['input']
                     # Bash tools: show the command as shell code
-                    if part['name'] == 'Bash' and isinstance(tool_input, dict) and 'command' in tool_input:
+                    if part['name'] in ('Bash', 'Monitor') and isinstance(tool_input, dict) and 'command' in tool_input:
                         cmd = tool_input['command']
                         cmd_lines = cmd.split('\n')
                         cmd_escaped = html.escape(cmd)
@@ -413,6 +427,48 @@ def generate_html(messages, project_dir, title='Conversation'):
   </summary>
   <pre class="tool-input"><code>{full_content}</code></pre>
 </details>''')
+                    elif part['name'] == 'Skill' and isinstance(tool_input, dict) and 'skill' in tool_input:
+                        skill = html.escape(tool_input['skill'])
+                        skill_args = html.escape(tool_input.get('args', '') or '')
+                        parts_html.append(tool_summary(
+                            '&#129513;',
+                            f'<code class="inline-code">/{skill}</code>',
+                            detail=skill_args))
+                    elif part['name'] == 'Agent' and isinstance(tool_input, dict):
+                        agent_type = html.escape(tool_input.get('subagent_type', 'agent'))
+                        desc = html.escape(tool_input.get('description', ''))
+                        parts_html.append(tool_summary(
+                            '&#129302;',
+                            f'<span class="tool-write-path">{agent_type}</span>'
+                            + (f' &mdash; {desc}' if desc else ''),
+                            detail=tool_input.get('prompt', '')))
+                    elif part['name'] == 'TaskCreate' and isinstance(tool_input, dict):
+                        subject = html.escape(tool_input.get('subject', ''))
+                        parts_html.append(tool_summary(
+                            '&#128203;', f'new task: {subject}',
+                            detail=tool_input.get('description', '')))
+                    elif part['name'] == 'TaskUpdate' and isinstance(tool_input, dict):
+                        task_id = html.escape(str(tool_input.get('taskId', '')))
+                        bits = [f'{html.escape(k)}: {html.escape(str(v))}'
+                                for k, v in tool_input.items() if k != 'taskId']
+                        detail_line = ', '.join(bits)
+                        parts_html.append(tool_summary(
+                            '&#9998;', f'task {task_id} &rarr; {detail_line}'))
+                    elif part['name'] == 'ToolSearch' and isinstance(tool_input, dict):
+                        query = html.escape(tool_input.get('query', ''))
+                        parts_html.append(tool_summary(
+                            '&#128270;',
+                            f'tool search <code class="inline-code">{query}</code>'))
+                    elif part['name'] == 'WebSearch' and isinstance(tool_input, dict):
+                        query = html.escape(tool_input.get('query', ''))
+                        parts_html.append(tool_summary('&#127760;', f'web search: {query}'))
+                    elif part['name'] == 'WebFetch' and isinstance(tool_input, dict):
+                        url = tool_input.get('url', '')
+                        safe_url = html.escape(url, quote=True)
+                        parts_html.append(tool_summary(
+                            '&#127760;',
+                            f'<a href="{safe_url}">{html.escape(url)}</a>',
+                            detail=tool_input.get('prompt', '')))
                     else:
                         if isinstance(tool_input, dict):
                             input_display = json.dumps(tool_input, indent=2)
@@ -1249,21 +1305,87 @@ document.addEventListener('keydown', function(e) {{
 </html>'''
 
 
+def project_slug(cwd):
+    """Slugify a cwd the way the harness names its project directories.
+
+    Every non-alphanumeric character becomes a dash -- not just '/'. A path
+    like /home/u/git/d.rymcg.tech lives in -home-u-git-d-rymcg-tech, so
+    replacing only slashes misses any path containing a dot.
+    """
+    return re.sub(r'[^a-zA-Z0-9]', '-', cwd)
+
+
+def newest_jsonl(directory):
+    files = [f for f in os.listdir(directory) if f.endswith('.jsonl')]
+    if not files:
+        return None
+    files.sort(key=lambda f: os.path.getmtime(os.path.join(directory, f)), reverse=True)
+    return os.path.join(directory, files[0])
+
+
 def find_session(cwd=None):
     """Find the current session JSONL file."""
     if cwd is None:
         cwd = os.getcwd()
-    slug = '-' + cwd.replace('/', '-').lstrip('-')
-    projects_dir = os.path.expanduser(f'~/.claude/projects/{slug}')
-    if not os.path.isdir(projects_dir):
-        print(f"Error: project directory not found: {projects_dir}", file=sys.stderr)
-        sys.exit(1)
-    jsonl_files = [f for f in os.listdir(projects_dir) if f.endswith('.jsonl')]
-    if not jsonl_files:
-        print(f"Error: no session files in {projects_dir}", file=sys.stderr)
-        sys.exit(1)
-    jsonl_files.sort(key=lambda f: os.path.getmtime(os.path.join(projects_dir, f)), reverse=True)
-    return os.path.join(projects_dir, jsonl_files[0])
+    projects_root = os.path.expanduser('~/.claude/projects')
+    project_dirs = sorted(os.listdir(projects_root)) if os.path.isdir(projects_root) else []
+
+    # The harness exports the live session id. Use it to pin the exact
+    # transcript -- newest-mtime picks the wrong one once a session has been
+    # resumed or forked, or when two sessions share a repo.
+    live = None
+    session_id = os.environ.get('CLAUDE_CODE_SESSION_ID')
+    if session_id:
+        for name in project_dirs:
+            candidate = os.path.join(projects_root, name, f'{session_id}.jsonl')
+            if os.path.isfile(candidate):
+                live = candidate
+                break
+
+    # An explicit cwd still wins: only trust the live id inside that project.
+    projects_dir = os.path.join(projects_root, project_slug(cwd))
+    if os.path.isdir(projects_dir):
+        if live and os.path.dirname(live) == projects_dir:
+            return live
+        path = newest_jsonl(projects_dir)
+        if path:
+            return path
+    if live:
+        return live
+
+    # Last resort: the slug rules changed, so ask the transcripts themselves
+    # which project directory records this cwd.
+    best = None
+    for name in project_dirs:
+        path = newest_jsonl(os.path.join(projects_root, name))
+        if path is None or transcript_cwd(path) != cwd:
+            continue
+        if best is None or os.path.getmtime(path) > os.path.getmtime(best):
+            best = path
+    if best:
+        return best
+
+    print(f"Error: no session transcript found for {cwd}", file=sys.stderr)
+    sys.exit(1)
+
+
+def transcript_cwd(filepath):
+    """Read the cwd recorded in a transcript, or None."""
+    try:
+        with open(filepath, 'r') as f:
+            for _ in range(50):
+                line = f.readline()
+                if not line:
+                    break
+                try:
+                    entry = json.loads(line.strip())
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if entry.get('cwd'):
+                    return entry['cwd']
+    except OSError:
+        pass
+    return None
 
 
 def first_user_message(filepath):
